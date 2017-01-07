@@ -1,12 +1,17 @@
-import math as math
+# (1)  when the argument is a numpy array, np.sum ultimately calls add.reduce to do the work.
+#      The overhead of handling its argument and dispatching to add.reduce is why np.sum is slower.
+
+import time
 
 import numpy as np
 import pandas
 import scipy.stats.stats as pearsonr
 
+startTime = time.time()
+
 columnNames = ['movieID', 'userID', 'rating']
 
-data = pandas.read_csv('TrainingRatingsSmall.txt', names=columnNames,
+data = pandas.read_csv('TrainingRatings.txt', names=columnNames,
                        dtype={'movieID': np.str, 'userID': np.str, 'rating': np.float})
 
 # gets first column for movie ids and second for user ids
@@ -30,15 +35,19 @@ userEnum = {v: k for k, v in tempUserEnum.items()}  #inverse tempUserEnum becaus
 # movie X user matrix
 movieUserRatingMatrix = np.empty(shape=(numberOfMovies, numberOfUsers), dtype=np.float)
 
+# user X user weight matrix (r)
+userWeightMatrix = np.empty(shape=(numberOfUsers, numberOfUsers), dtype=float)
 
 ############################################## FUNCTIONS DEFINITIONS #############################################
 
 # First value is the r-value, 2nd is the p-value
 def scipyPearsonrTest( index1, index2 ):
 	print(pearsonr.pearsonr(movieUserRatingMatrix[:, index1], movieUserRatingMatrix[:, index2]))
+	#print(pearsonr.pearsonr(index1, index2))
 	return
 
-def buildMovieratingMatrix( data ):
+
+def buildMovieUserRatingMatrix( data ):
 	for index, row in data.iterrows():
 		movieIndex = movieEnum[row['movieID']]
 		userIndex = userEnum[row['userID']]
@@ -58,37 +67,52 @@ def getMeanRatingByUserIndex( activeUserIndex ):
 	return sum / numberOfRating
 
 
+def sumOfSquares( arr ):
+	return sum([arr[i] ** 2 for i in range(0, arr.size)])
+
+
+def getRatingsForBothUsers( activeUserVector, otherUserVector ):
+	x = []
+	y = []
+	for i in range(0, activeUserVector.size):  ## both vectors have same size
+		if activeUserVector[i] == 0 or otherUserVector[i] == 0:
+			continue
+		else:
+			x.append(activeUserVector[i])
+			y.append(otherUserVector[i])
+
+	return np.asarray(x), np.asarray(y)
+
 def calculatePearsonCorrelation( activeUserIndex, userIndex ):
-	numerator = 0
-	denumeratorForActiveUser = 0
-	denumeratorForUser = 0
-	denumerator = 0
+	x, y = getRatingsForBothUsers(movieUserRatingMatrix[:, activeUserIndex], movieUserRatingMatrix[:, userIndex])
+	mx = x.mean()
+	my = y.mean()
+	xm, ym = x - mx, y - my
+	r_num = np.add.reduce(xm * ym)  # numpy.add.reduce equals to numpy.sum (1)
+	r_den = np.sqrt(sumOfSquares(xm) * sumOfSquares(ym))
+	r = r_num / r_den
 
-	meanRatingGivenByActiveUser = getMeanRatingByUserIndex(activeUserIndex)
-	meanRatingGivenByUser = getMeanRatingByUserIndex(userIndex)
+	return r
 
-	for movie in movieUserRatingMatrix:
-		ratingGivenByActiveUser = movie[activeUserIndex]
-		ratingGivenByUser = movie[userIndex]
 
-		numerator += (ratingGivenByActiveUser - meanRatingGivenByActiveUser) * (
-		ratingGivenByUser - meanRatingGivenByUser)
-		denumeratorForActiveUser = + math.pow(ratingGivenByActiveUser - meanRatingGivenByActiveUser, 2)
-		denumeratorForUser = + math.pow(ratingGivenByUser - meanRatingGivenByUser, 2)
-
-	denumerator = (math.sqrt(denumeratorForActiveUser)) * (math.sqrt(denumeratorForUser))
-
-	# r = pearson correlation
-	r = numerator / denumerator
-	print(r)
-	scipyPearsonrTest(activeUserIndex, userIndex)
+def buildWeightMatrixBetweenUsers( ):
+	for activeUserIndex in range(0, numberOfUsers - 1):
+		print(str(activeUserIndex) + "th active user..")
+		for otherUserIndex in range(activeUserIndex + 1, numberOfUsers):
+			w = calculatePearsonCorrelation(activeUserIndex, otherUserIndex)
+			# print ("w: " + str(w))
+			userWeightMatrix[activeUserIndex, otherUserIndex] = w
+			userWeightMatrix[otherUserIndex, activeUserIndex] = w
 
 	return
-
 
 ############################################ END OF FUNCTIONS DEFINITIONS ########################################
 
 # kullanıcılar tarafından herbir filme verilen puanlar tutuluyor
-buildMovieratingMatrix(data)
+buildMovieUserRatingMatrix(data)
+print("Movie-user matrix build time is %s" % (time.time() - startTime))
 
-calculatePearsonCorrelation(0,1)
+buildWeightMatrixBetweenUsers()
+
+print(userWeightMatrix[0:10, 0:10])
+print("Execution time: %s seconds." % (time.time() - startTime))
