@@ -6,17 +6,18 @@ import time
 import numpy as np
 import pandas
 import scipy.stats.stats as pearsonr
+import buildUserWeightMatrix
 
 startTime = time.time()
 
 columnNames = ['movieID', 'userID', 'rating']
 
-data = pandas.read_csv('TrainingRatings.txt', names=columnNames,
-                       dtype={'movieID': np.str, 'userID': np.str, 'rating': np.float})
+trainData = pandas.read_csv('TrainingRatings.txt', names=columnNames,
+							dtype={'movieID': np.str, 'userID': np.str, 'rating': np.float})
 
 # gets first column for movie ids and second for user ids
-listOfMovieIDs = data.movieID.tolist()
-listOfUserIDs = data.userID.tolist()
+listOfMovieIDs = trainData.movieID.tolist()
+listOfUserIDs = trainData.userID.tolist()
 
 # unique movie IDs
 # pandas.unique is faster then numpy.unique and return_index= true by default
@@ -95,8 +96,8 @@ def calculatePearsonCorrelation( activeUserIndex, userIndex ):
 	return r
 
 
-def buildWeightMatrixBetweenUsers( ):
-	for activeUserIndex in range(0, numberOfUsers - 1):
+def buildWeightMatrixBetweenUsers():
+	for activeUserIndex in range(0, numberOfUsers-1):
 		print(str(activeUserIndex) + "th active user..")
 		for otherUserIndex in range(activeUserIndex + 1, numberOfUsers):
 			w = calculatePearsonCorrelation(activeUserIndex, otherUserIndex)
@@ -106,13 +107,57 @@ def buildWeightMatrixBetweenUsers( ):
 
 	return
 
+# Predict rating for user <userIndex>, for movie <movieIndex>
+def  predictAndCompareUserRating(testData):
+
+	predictRatingsFile = open("PredictRatings.txt", "w")
+
+	for index, row in testData.iterrows():
+		movieID = row['movieID']
+		movieIndex = movieEnum[movieID]
+		activeUserID = row['userID']
+		activeUserIndex = userEnum[row['userID']]
+		expectedRating = row['rating']
+
+		ratingsOfActiveUser = np.asarray(movieUserRatingMatrix[:,activeUserIndex]).mean()
+		meanRatingOfActiveUser = ratingsOfActiveUser.mean() #test
+
+		numerator = 0
+		denumerator = 0
+
+		for otherUserIndex in range(0, numberOfUsers):
+			if otherUserIndex == activeUserIndex:
+				continue
+
+			ratingsOfOtherUser = np.asarray(movieUserRatingMatrix[:, otherUserIndex]).mean()
+			meanRatingOfOtherUser = ratingsOfOtherUser.mean()
+			otherUserRating = movieUserRatingMatrix[movieEnum[movieID]][otherUserIndex]
+
+			numerator += (otherUserRating - meanRatingOfOtherUser) * userWeightMatrix[activeUserIndex][otherUserIndex]
+			denumerator += userWeightMatrix[activeUserIndex][otherUserIndex]
+
+		predictedRating = meanRatingOfActiveUser + numerator / denumerator
+
+		predictRatingsFile.write("%s,%s,%f.2" % (str(movieID),str(activeUserID),predictedRating))
+
+
+	predictRatingsFile.close()
+
+	return
+
 ############################################ END OF FUNCTIONS DEFINITIONS ########################################
 
 # kullanıcılar tarafından herbir filme verilen puanlar tutuluyor
-buildMovieUserRatingMatrix(data)
+buildMovieUserRatingMatrix(trainData)
 print("Movie-user matrix build time is %s" % (time.time() - startTime))
 
+# kullanıcılar arasındaki ağırlık matrisi oluşturulur
 buildWeightMatrixBetweenUsers()
-
-print(userWeightMatrix[0:10, 0:10])
+weightMatrix = buildUserWeightMatrix.buildWeightMatrixBetweenUsers(movieUserRatingMatrix,numberOfUsers)
+#print(userWeightMatrix[0:10, 0:10])
 print("Execution time: %s seconds." % (time.time() - startTime))
+
+
+# read testRatings
+testData = pandas.read_csv('test.txt', names=columnNames, dtype={'movieID': np.str, 'userID': np.str, 'rating': np.float})
+predictAndCompareUserRating(testData)
