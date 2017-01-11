@@ -152,9 +152,9 @@ buildMovieUserRatingMatrix(trainData)
 print("Movie-user matrix build time is %s" % (time.time() - startTime))
 
 # kullanıcılar arasındaki ağırlık matrisi oluşturulur
-buildWeightMatrixBetweenUsers()
+#buildWeightMatrixBetweenUsers()
 weightMatrix = buildUserWeightMatrix.buildWeightMatrixBetweenUsers(movieUserRatingMatrix,numberOfUsers)
-#print(userWeightMatrix[0:10, 0:10])
+print(userWeightMatrix[0:10, 0:10])
 print("Execution time: %s seconds." % (time.time() - startTime))
 
 
