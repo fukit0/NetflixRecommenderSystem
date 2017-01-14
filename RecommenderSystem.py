@@ -6,8 +6,9 @@ import time
 import numpy as np
 import pandas
 import scipy.stats.stats as pearsonr
-import buildUserWeightMatrix
+import buildUserWeightMatrix # C'ye compile ettiğimiz dosyayı import ediyoruz
 
+knn = 50
 startTime = time.time()
 
 columnNames = ['movieID', 'userID', 'rating']
@@ -41,13 +42,6 @@ userWeightMatrix = np.empty(shape=(numberOfUsers, numberOfUsers), dtype=float)
 
 ############################################## FUNCTIONS DEFINITIONS #############################################
 
-# First value is the r-value, 2nd is the p-value
-def scipyPearsonrTest( index1, index2 ):
-	print(pearsonr.pearsonr(movieUserRatingMatrix[:, index1], movieUserRatingMatrix[:, index2]))
-	#print(pearsonr.pearsonr(index1, index2))
-	return
-
-
 def buildMovieUserRatingMatrix( data ):
 	for index, row in data.iterrows():
 		movieIndex = movieEnum[row['movieID']]
@@ -56,56 +50,20 @@ def buildMovieUserRatingMatrix( data ):
 
 	return
 
-
-def getMeanRatingByUserIndex( activeUserIndex ):
-	sum = 0
-	numberOfRating = 0
-	for rating in movieUserRatingMatrix[:, activeUserIndex]:
-		if rating != 0:  # izlemediği filmleri hesaba katmıyoruz
-			numberOfRating += 1
-			sum += rating
-
-	return sum / numberOfRating
+# returns root mean square error value
+def rmse(predictions, targets):
+	return np.sqrt(((predictions - targets) ** 2).mean())
 
 
-def sumOfSquares( arr ):
-	return sum([arr[i] ** 2 for i in range(0, arr.size)])
+def getMeanRating(ratings):
 
+	ratingArr = []
 
-def getRatingsForBothUsers( activeUserVector, otherUserVector ):
-	x = []
-	y = []
-	for i in range(0, activeUserVector.size):  ## both vectors have same size
-		if activeUserVector[i] == 0 or otherUserVector[i] == 0:
-			continue
-		else:
-			x.append(activeUserVector[i])
-			y.append(otherUserVector[i])
+	for r in range(0,len(ratings)):
+		if r > 0:
+			ratingArr.append(r)
 
-	return np.asarray(x), np.asarray(y)
-
-def calculatePearsonCorrelation( activeUserIndex, userIndex ):
-	x, y = getRatingsForBothUsers(movieUserRatingMatrix[:, activeUserIndex], movieUserRatingMatrix[:, userIndex])
-	mx = x.mean()
-	my = y.mean()
-	xm, ym = x - mx, y - my
-	r_num = np.add.reduce(xm * ym)  # numpy.add.reduce equals to numpy.sum (1)
-	r_den = np.sqrt(sumOfSquares(xm) * sumOfSquares(ym))
-	r = r_num / r_den
-
-	return r
-
-
-def buildWeightMatrixBetweenUsers():
-	for activeUserIndex in range(0, numberOfUsers-1):
-		print(str(activeUserIndex) + "th active user..")
-		for otherUserIndex in range(activeUserIndex + 1, numberOfUsers):
-			w = calculatePearsonCorrelation(activeUserIndex, otherUserIndex)
-			# print ("w: " + str(w))
-			userWeightMatrix[activeUserIndex, otherUserIndex] = w
-			userWeightMatrix[otherUserIndex, activeUserIndex] = w
-
-	return
+	return  np.asarray(ratingArr).mean()
 
 # Predict rating for user <userIndex>, for movie <movieIndex>
 def predictAndCompareUserRating(testData,weightMatrix,knn):
@@ -116,47 +74,57 @@ def predictAndCompareUserRating(testData,weightMatrix,knn):
 	recommendationCounter = 0
 	maeValue = 0
 
+	rmsePredictions = []
+	rmseExpecteds = []
 
 	for index, row in testData.iterrows():
+		# test dosyasından  satır okunuyor
 		movieID = row['movieID']
 		movieIndex = movieEnum[movieID]
 		userID = row['userID']
 		userIndex = userEnum[userID]
 		expectedRating = row['rating']
 
-		meanRatingOfActiveUser = np.asarray(movieUserRatingMatrix[:,userIndex]).mean()
+		meanRatingOfActiveUser = getMeanRating(movieUserRatingMatrix[:,userIndex])
 
 		numerator = 0
 		denumerator = 0
 
 		if userIndex < 100:
-			# diğer userlar ile olan ağırlıkları büyükten küçüğe sıralarnı ve knn kadarı alınır
+			# diğer userlar ile olan ağırlıkları büyükten küçüğe sıralarnı ve knn kadar user alınır
 			sortedMostSimilarUsers = np.argsort(weightMatrix[userIndex][:])[::-1][:knn]
 
 			for similarUserIndex in range(0, knn):
-				mostSimilarUserIndex = sortedMostSimilarUsers[similarUserIndex]
+				#benzer kullanıcı indexini al
+				similarUserIndex = sortedMostSimilarUsers[similarUserIndex]
 
-				meanRatingOfOtherUser = np.asarray(movieUserRatingMatrix[:, mostSimilarUserIndex]).mean()
-				otherUserRatingForMovie = movieUserRatingMatrix[movieIndex][mostSimilarUserIndex]
+				#benzer kullanıcının verdiği oyların ortalaması
+				meanRatingOfSimilarUser = getMeanRating(movieUserRatingMatrix[:, similarUserIndex])
+				#benzer kullanıcının movieID idli filme verdiği oy
+				similarUserRatingForMovie = movieUserRatingMatrix[movieIndex][similarUserIndex]
 
-				numerator += (otherUserRatingForMovie - meanRatingOfOtherUser) * weightMatrix[userIndex][
-					mostSimilarUserIndex]
-				denumerator += weightMatrix[userIndex][mostSimilarUserIndex]
+				numerator += (similarUserRatingForMovie - meanRatingOfSimilarUser) * weightMatrix[userIndex][
+					similarUserIndex]
+				denumerator += weightMatrix[userIndex][similarUserIndex]
 
 			predictedRating = meanRatingOfActiveUser + numerator / denumerator
 			predictedMovies[predictionCounter] = ((str(movieID), str(userID), predictedRating))
 			predictionCounter += 1
-			maeValue += predictedRating - expectedRating
+			maeValue += abs(predictedRating - expectedRating) # farkın mutlak değeri
+			# rmse hesaplaması için değerler dizilere ekleniyor
+			rmsePredictions.append(predictedRating)
+			rmseExpecteds.append(expectedRating)
 
-
+			# film tahminleme
 			if predictedRating > 4:
 				recommendations[recommendationCounter] = (str(movieID), str(userID))
 				recommendationCounter += 1
 
 
 	np.savetxt('PredictRatings.txt', predictedMovies,delimiter=',',newline='\n', fmt='%s,%s,%f')
-	np.savetxt('RecommendMovie.txt', recommendations, delimiter=',',newline='\n', fmt='%s,%s,%f')
-	print("MAE : " + str(maeValue/predictionCounter))
+	np.savetxt('RecommendMovie.txt', recommendations, delimiter=',',newline='\n', fmt='%s,%s')
+	print("MAE  : " + str(maeValue/predictionCounter))
+	print("RMSE : " + str(rmse(np.asarray(rmsePredictions),np.asarray(rmseExpecteds))))
 	return
 
 ############################################ END OF FUNCTIONS DEFINITIONS ########################################
@@ -166,8 +134,8 @@ buildMovieUserRatingMatrix(trainData)
 print("Movie-user matrix build time is %s" % (time.time() - startTime))
 
 # kullanıcılar arasındaki ağırlık matrisi oluşturulur
-#buildWeightMatrixBetweenUsers()
-weightMatrix = buildUserWeightMatrix.buildWeightMatrixBetweenUsers(movieUserRatingMatrix,5000)
+# C ye çevrilerek programın hızlandırılması amaçlanmıştır
+weightMatrix = buildUserWeightMatrix.buildWeightMatrixBetweenUsers(movieUserRatingMatrix,numberOfUsers)
 #print(weightMatrix[0:10, 0:10])
 print("Execution time: %s seconds." % (time.time() - startTime))
 
@@ -175,4 +143,5 @@ print("Execution time: %s seconds." % (time.time() - startTime))
 # read testRatings
 testData = pandas.read_csv('TestingRatings.txt', names=columnNames, dtype={'movieID': np.str, 'userID': np.str, 'rating': np.float})
 #print(len(testData))
-predictAndCompareUserRating(testData,weightMatrix,5)
+predictAndCompareUserRating(testData,weightMatrix,knn)
+# program execution time takes about 55 hours

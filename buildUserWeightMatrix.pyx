@@ -16,7 +16,8 @@ def buildWeightMatrixBetweenUsers(np.ndarray[FLOAT_DTYPE_T,ndim=2] movieUserRati
         print(str(activeUserIndex) + "th active user..")
         for otherUserIndex in range(activeUserIndex + 1, numberOfUsers):
             w = calculatePearsonCorrelation(movieUserRatingMatrix,activeUserIndex, otherUserIndex, numberOfUsers)
-            # print ("w: " + str(w))
+
+            # simetrik matris olduğu için ters indexe de değer atanıyor
             userWeightMatrix[activeUserIndex, otherUserIndex] = w
             userWeightMatrix[otherUserIndex, activeUserIndex] = w
 
@@ -34,9 +35,14 @@ def calculatePearsonCorrelation(np.ndarray[FLOAT_DTYPE_T,ndim=2] movieUserRating
     cdef float r,r_num,r_den
 
     x, y = getRatingsForBothUsers(movieUserRatingMatrix[:, activeUserIndex], movieUserRatingMatrix[:, userIndex])
+    #mean value lar çıkartılıyor
     mx = x.mean()
     my = y.mean()
+
+    # mean centered hale getiriliyorlar
     xm, ym = x - mx, y - my
+
+    # çarpımlarının toplamı alınıyor
     r_num = np.add.reduce(xm * ym)  # numpy.add.reduce equals to numpy.sum (1)
     r_den = np.sqrt(sumOfSquares(xm) * sumOfSquares(ym))
     if r_den == 0:
@@ -51,7 +57,7 @@ def getRatingsForBothUsers(np.ndarray[FLOAT_DTYPE_T, ndim=1] activeUserVector, n
     cdef y = []
     cdef int arrIndex = 0
 
-    ## both vectors have same size
+    ## iki kullanıcının ortak filmler için verdikleri oylar  dizilere ekleniyor
     for i in range(0, activeUserVector.size):
         if activeUserVector[i] != 0 and otherUserVector[i] != 0:
             x.append(activeUserVector[i])
