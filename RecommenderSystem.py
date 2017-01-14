@@ -108,41 +108,55 @@ def buildWeightMatrixBetweenUsers():
 	return
 
 # Predict rating for user <userIndex>, for movie <movieIndex>
-def  predictAndCompareUserRating(testData):
+def predictAndCompareUserRating(testData,weightMatrix,knn):
 
-	predictRatingsFile = open("PredictRatings.txt", "w")
+	predictedMovies = np.zeros([len(testData)], dtype=[('movieID', '|S10'), ('userID', '|S10'), ('predictedRating', 'f4')])
+	predictionCounter = 0
+	recommendations = np.zeros([numberOfMovies], dtype=[('movieID', '|S10'), ('userID', '|S10')])
+	recommendationCounter = 0
+	maeValue = 0
+
 
 	for index, row in testData.iterrows():
 		movieID = row['movieID']
 		movieIndex = movieEnum[movieID]
-		activeUserID = row['userID']
-		activeUserIndex = userEnum[row['userID']]
+		userID = row['userID']
+		userIndex = userEnum[userID]
 		expectedRating = row['rating']
 
-		ratingsOfActiveUser = np.asarray(movieUserRatingMatrix[:,activeUserIndex]).mean()
-		meanRatingOfActiveUser = ratingsOfActiveUser.mean() #test
+		meanRatingOfActiveUser = np.asarray(movieUserRatingMatrix[:,userIndex]).mean()
 
 		numerator = 0
 		denumerator = 0
 
-		for otherUserIndex in range(0, numberOfUsers):
-			if otherUserIndex == activeUserIndex:
-				continue
+		if userIndex < 100:
+			# diğer userlar ile olan ağırlıkları büyükten küçüğe sıralarnı ve knn kadarı alınır
+			sortedMostSimilarUsers = np.argsort(weightMatrix[userIndex][:])[::-1][:knn]
 
-			ratingsOfOtherUser = np.asarray(movieUserRatingMatrix[:, otherUserIndex]).mean()
-			meanRatingOfOtherUser = ratingsOfOtherUser.mean()
-			otherUserRating = movieUserRatingMatrix[movieEnum[movieID]][otherUserIndex]
+			for similarUserIndex in range(0, knn):
+				mostSimilarUserIndex = sortedMostSimilarUsers[similarUserIndex]
 
-			numerator += (otherUserRating - meanRatingOfOtherUser) * userWeightMatrix[activeUserIndex][otherUserIndex]
-			denumerator += userWeightMatrix[activeUserIndex][otherUserIndex]
+				meanRatingOfOtherUser = np.asarray(movieUserRatingMatrix[:, mostSimilarUserIndex]).mean()
+				otherUserRatingForMovie = movieUserRatingMatrix[movieIndex][mostSimilarUserIndex]
 
-		predictedRating = meanRatingOfActiveUser + numerator / denumerator
+				numerator += (otherUserRatingForMovie - meanRatingOfOtherUser) * weightMatrix[userIndex][
+					mostSimilarUserIndex]
+				denumerator += weightMatrix[userIndex][mostSimilarUserIndex]
 
-		predictRatingsFile.write("%s,%s,%f.2" % (str(movieID),str(activeUserID),predictedRating))
+			predictedRating = meanRatingOfActiveUser + numerator / denumerator
+			predictedMovies[predictionCounter] = ((str(movieID), str(userID), predictedRating))
+			predictionCounter += 1
+			maeValue += predictedRating - expectedRating
 
 
-	predictRatingsFile.close()
+			if predictedRating > 4:
+				recommendations[recommendationCounter] = (str(movieID), str(userID))
+				recommendationCounter += 1
 
+
+	np.savetxt('PredictRatings.txt', predictedMovies,delimiter=',',newline='\n', fmt='%s,%s,%f')
+	np.savetxt('RecommendMovie.txt', recommendations, delimiter=',',newline='\n', fmt='%s,%s,%f')
+	print("MAE : " + str(maeValue/predictionCounter))
 	return
 
 ############################################ END OF FUNCTIONS DEFINITIONS ########################################
@@ -153,11 +167,12 @@ print("Movie-user matrix build time is %s" % (time.time() - startTime))
 
 # kullanıcılar arasındaki ağırlık matrisi oluşturulur
 #buildWeightMatrixBetweenUsers()
-weightMatrix = buildUserWeightMatrix.buildWeightMatrixBetweenUsers(movieUserRatingMatrix,numberOfUsers)
-print(userWeightMatrix[0:10, 0:10])
+weightMatrix = buildUserWeightMatrix.buildWeightMatrixBetweenUsers(movieUserRatingMatrix,5000)
+#print(weightMatrix[0:10, 0:10])
 print("Execution time: %s seconds." % (time.time() - startTime))
 
 
 # read testRatings
-testData = pandas.read_csv('test.txt', names=columnNames, dtype={'movieID': np.str, 'userID': np.str, 'rating': np.float})
-predictAndCompareUserRating(testData)
+testData = pandas.read_csv('TestingRatings.txt', names=columnNames, dtype={'movieID': np.str, 'userID': np.str, 'rating': np.float})
+#print(len(testData))
+predictAndCompareUserRating(testData,weightMatrix,5)
